@@ -1,0 +1,6 @@
+{
+  "name": "MedPulse BRICS",
+  "description": "AI-Powered Predictive Health & Supply Chain Resilience Platform for primary healthcare centers and federated cross-border intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PHC {
+  id              String   @id
+  name            String
+  code            String   @unique
+  state           String
+  district        String
+  latitude        Float
+  longitude       Float
+  status          String   @default("ACTIVE")
+  riskLevel       String   @default("stable") // 'stable' | 'warning' | 'high' | 'critical'
+  riskScore       Float    @default(0)        // 0 - 100
+  resilienceScore Float    @default(80)       // 0 - 100
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  inventory         PHCMedicineInventory[]
+  patientMetrics    PatientMetrics[]
+  bedMetrics        BedMetrics[]
+  staffMetrics      StaffMetrics[]
+  staffMembers      StaffMember[]
+  alerts            Alert[]
+  outgoingTransfers ResourceTransfer[]     @relation("SourcePHC")
+  incomingTransfers ResourceTransfer[]     @relation("DestPHC")
+  outgoingHistory   TransferHistory[]      @relation("HistorySourcePHC")
+  incomingHistory   TransferHistory[]      @relation("HistoryDestPHC")
+
+  @@index([state, district])
+  @@index([riskLevel])
+}
+
+model Medicine {
+  id           String   @id
+  name         String
+  category     String
+  dosage       String
+  unit         String
+  reorderLevel Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  inventories     PHCMedicineInventory[]
+  transfers       ResourceTransfer[]
+  transferHistory TransferHistory[]
+
+  @@index([category])
+}
+
+model PHCMedicineInventory {
+  id                String   @id @default(cuid())
+  phcId             String
+  medicineId        String
+  currentStock      Int
+  dailyConsumption  Int      @default(1)
+  receivedQuantity  Int      @default(0)
+  usedQuantity      Int      @default(0)
+  expiryDate        DateTime
+  wastedQuantity    Int      @default(0)
+  updatedAt         DateTime @updatedAt
+
+  // Relationships
+  phc      PHC      @relation(fields: [phcId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@unique([phcId, medicineId])
+  @@index([phcId])
+  @@index([medicineId])
+  @@index([expiryDate])
+}
+
+model PatientMetrics {
+  id               String   @id @default(cuid())
+  phcId            String
+  date             DateTime @default(now())
+  totalPatients    Int      @default(0)
+  newPatients      Int      @default(0)
+  underTreatment   Int      @default(0)
+  recovered        Int      @default(0)
+  discharged       Int      @default(0)
+  admitted         Int      @default(0)
+  emergencyCases   Int      @default(0)
+  criticalPatients Int      @default(0)
+  referredPatients Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  // Relationships
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+
+  @@index([phcId, date])
+}
+
+model BedMetrics {
+  id                    String   @id @default(cuid())
+  phcId                 String
+  date                  DateTime @default(now())
+  totalBeds             Int      @default(0)
+  occupiedBeds          Int      @default(0)
+  emergencyBeds         Int      @default(0)
+  emergencyBedsOccupied Int      @default(0)
+  icuBeds               Int      @default(0)
+  icuBedsOccupied       Int      @default(0)
+  patientsAdmitted      Int      @default(0)
+  patientsDischarged    Int      @default(0)
+  patientsReferred      Int      @default(0)
+  createdAt             DateTime @default(now())
+
+  // Relationships
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+
+  @@index([phcId, date])
+}
+
+model StaffMetrics {
+  id                  String   @id @default(cuid())
+  phcId               String
+  date                DateTime @default(now())
+  shift               String   @default("Morning")
+  doctorsScheduled    Int      @default(0)
+  doctorsPresent      Int      @default(0)
+  doctorsAbsent       Int      @default(0)
+  nursesScheduled     Int      @default(0)
+  nursesPresent       Int      @default(0)
+  nursesAbsent        Int      @default(0)
+  otherStaffScheduled Int      @default(0)
+  otherStaffPresent   Int      @default(0)
+  otherStaffAbsent    Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  // Relationships
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+
+  @@index([phcId, date])
+}
+
+model StaffMember {
+  id                String   @id @default(cuid())
+  phcId             String
+  name              String
+  role              String   // 'Medical Officer' | 'Senior Physician' | 'Triage Nurse' | 'Pharmacist' | 'Lab Technician'
+  shift             String   // 'Morning' | 'Evening' | 'Night' | 'On-Call'
+  status            String   // 'on_duty' | 'break' | 'off_duty' | 'standby'
+  patientsSeenToday Int      @default(0)
+  specialty         String?
+  createdAt         DateTime @default(now())
+
+  // Relationships
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+
+  @@index([phcId])
+}
+
+model Alert {
+  id                String    @id @default(cuid())
+  phcId             String
+  type              String    // 'supply' | 'bed' | 'staff' | 'epidemic'
+  severity          String    // 'stable' | 'warning' | 'high' | 'critical'
+  title             String
+  message           String
+  timeRemaining     String?
+  recommendedAction String?
+  status            String    @default("active") // 'active' | 'resolved'
+  resolved          Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  resolvedAt        DateTime?
+
+  // Relationships
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+
+  @@index([phcId])
+  @@index([resolved, severity])
+}
+
+model ResourceTransfer {
+  id                String    @id @default(cuid())
+  medicineId        String
+  sourcePhcId       String
+  destinationPhcId  String
+  quantity          Int
+  requestedQuantity Int       @default(0)
+  approvedQuantity  Int       @default(0)
+  status            String    @default("RECOMMENDED") // 'RECOMMENDED' | 'APPROVED' | 'DISPATCHED' | 'COMPLETED' | 'REJECTED'
+  reason            String?
+  distanceKm        Float?
+  transitMinutes    Int?
+  approvedAt        DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+
+  // Relationships
+  medicine       Medicine @relation(fields: [medicineId], references: [id])
+  sourcePhc      PHC      @relation("SourcePHC", fields: [sourcePhcId], references: [id])
+  destinationPhc PHC      @relation("DestPHC", fields: [destinationPhcId], references: [id])
+
+  @@index([sourcePhcId])
+  @@index([destinationPhcId])
+  @@index([status])
+}
+
+model TransferHistory {
+  id                 String   @id @default(cuid())
+  transferId         String?
+  sourcePhcId        String?
+  destinationPhcId   String?
+  sourcePhcName      String
+  destinationPhcName String
+  medicineId         String?
+  medicineName       String
+  quantity           Int
+  distanceKm         Float?
+  transitMinutes     Int?
+  status             String   // 'completed' | 'rejected' | 'in_transit'
+  carrier            String?
+  temperatureCelsius Float?
+  resilienceLift     String?
+  createdAt          DateTime @default(now())
+
+  // Relationships
+  sourcePhc      PHC?      @relation("HistorySourcePHC", fields: [sourcePhcId], references: [id], onDelete: SetNull)
+  destinationPhc PHC?      @relation("HistoryDestPHC", fields: [destinationPhcId], references: [id], onDelete: SetNull)
+  medicine       Medicine? @relation(fields: [medicineId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+}
+
+model FederatedNode {
+  id                  String    @id
+  country             String
+  countryCode         String
+  flag                String
+  institution         String
+  enclaveName         String
+  datasetStatus       String
+  recordsCount        String
+  recordsTrained      Int       @default(0)
+  modelVersion        String
+  localAccuracy       Float
+  lossMetric          Float?
+  weightHash          String?
+  verificationStatus  String    // 'verified_active' | 'syncing' | 'offline'
+  latencyMs           Int
+  lastWeightUpload    String
+  lastSync            DateTime?
+  contributedInsights String?
+  rawVaultStatus      String
+  updatedAt           DateTime  @updatedAt
+}

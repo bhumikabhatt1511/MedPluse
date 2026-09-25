@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+/* MapLibre GL Custom Popup Styles */
+.maplibregl-popup {
+  z-index: 50;
+}
+
+.maplibregl-popup-content {
+  padding: 0 !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  border: 1px solid #e2e8f0 !important;
+  background-color: #ffffff !important;
+  overflow: hidden;
+}
+
+.maplibregl-popup-close-button {
+  padding: 6px 10px !important;
+  color: #64748b !important;
+  font-size: 16px !important;
+  font-weight: bold;
+  transition: all 0.15s ease;
+  border-top-right-radius: 1rem;
+}
+
+.maplibregl-popup-close-button:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: #ffffff !important;
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: #ffffff !important;
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: #ffffff !important;
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: #ffffff !important;
+}
+
+/* Custom Marker Container */
+.maplibregl-marker {
+  cursor: pointer;
+}

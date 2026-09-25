@@ -1,0 +1,214 @@
+// use prisma-8
+
+model PHC {
+  id              String            @id
+  name            String
+  code            String            @unique
+  state           String
+  district        String
+  latitude        Float
+  longitude       Float
+  status          String            @default("ACTIVE")
+  riskLevel       String            @default("stable")
+  riskScore       Float             @default(0)
+  resilienceScore Float             @default(80)
+  createdAt       TimestamptzString @default(now())
+  updatedAt       TimestamptzString @default(now())
+
+  inventory         PHCMedicineInventory[]
+  patientMetrics    PatientMetrics[]
+  bedMetrics        BedMetrics[]
+  staffMetrics      StaffMetrics[]
+  staffMembers      StaffMember[]
+  alerts            Alert[]
+  outgoingTransfers ResourceTransfer[]     @relation("SourcePHC")
+  incomingTransfers ResourceTransfer[]     @relation("DestPHC")
+  outgoingHistory   TransferHistory[]      @relation("HistorySourcePHC")
+  incomingHistory   TransferHistory[]      @relation("HistoryDestPHC")
+}
+
+model Medicine {
+  id           String            @id
+  name         String
+  category     String
+  dosage       String
+  unit         String
+  reorderLevel Int
+  createdAt    TimestamptzString @default(now())
+  updatedAt    TimestamptzString @default(now())
+
+  inventories     PHCMedicineInventory[]
+  transfers       ResourceTransfer[]
+  transferHistory TransferHistory[]
+}
+
+model PHCMedicineInventory {
+  id               String            @id @default(uuid())
+  phcId            String
+  medicineId       String
+  currentStock     Int
+  dailyConsumption Int               @default(1)
+  receivedQuantity Int               @default(0)
+  usedQuantity     Int               @default(0)
+  expiryDate       TimestamptzString
+  wastedQuantity   Int               @default(0)
+  updatedAt        TimestamptzString @default(now())
+
+  phc      PHC      @relation(fields: [phcId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@unique([phcId, medicineId])
+}
+
+model PatientMetrics {
+  id               String            @id @default(uuid())
+  phcId            String
+  date             TimestamptzString @default(now())
+  totalPatients    Int               @default(0)
+  newPatients      Int               @default(0)
+  underTreatment   Int               @default(0)
+  recovered        Int               @default(0)
+  discharged       Int               @default(0)
+  admitted         Int               @default(0)
+  emergencyCases   Int               @default(0)
+  criticalPatients Int               @default(0)
+  referredPatients Int               @default(0)
+  createdAt        TimestamptzString @default(now())
+
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+}
+
+model BedMetrics {
+  id                    String            @id @default(uuid())
+  phcId                 String
+  date                  TimestamptzString @default(now())
+  totalBeds             Int               @default(0)
+  occupiedBeds          Int               @default(0)
+  emergencyBeds         Int               @default(0)
+  emergencyBedsOccupied Int               @default(0)
+  icuBeds               Int               @default(0)
+  icuBedsOccupied       Int               @default(0)
+  patientsAdmitted      Int               @default(0)
+  patientsDischarged    Int               @default(0)
+  patientsReferred      Int               @default(0)
+  createdAt             TimestamptzString @default(now())
+
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+}
+
+model StaffMetrics {
+  id                  String            @id @default(uuid())
+  phcId               String
+  date                TimestamptzString @default(now())
+  shift               String            @default("Morning")
+  doctorsScheduled    Int               @default(0)
+  doctorsPresent      Int               @default(0)
+  doctorsAbsent       Int               @default(0)
+  nursesScheduled     Int               @default(0)
+  nursesPresent       Int               @default(0)
+  nursesAbsent        Int               @default(0)
+  otherStaffScheduled Int               @default(0)
+  otherStaffPresent   Int               @default(0)
+  otherStaffAbsent    Int               @default(0)
+  createdAt           TimestamptzString @default(now())
+
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+}
+
+model StaffMember {
+  id                String            @id @default(uuid())
+  phcId             String
+  name              String
+  role              String
+  shift             String
+  status            String
+  patientsSeenToday Int               @default(0)
+  specialty         String?
+  createdAt         TimestamptzString @default(now())
+
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id                String             @id @default(uuid())
+  phcId             String
+  type              String
+  severity          String
+  title             String
+  message           String
+  timeRemaining     String?
+  recommendedAction String?
+  status            String             @default("active")
+  resolved          Boolean            @default(false)
+  createdAt         TimestamptzString  @default(now())
+  resolvedAt        TimestamptzString?
+
+  phc PHC @relation(fields: [phcId], references: [id], onDelete: Cascade)
+}
+
+model ResourceTransfer {
+  id                String             @id @default(uuid())
+  medicineId        String
+  sourcePhcId       String
+  destinationPhcId  String
+  quantity          Int
+  requestedQuantity Int                @default(0)
+  approvedQuantity  Int                @default(0)
+  status            String             @default("RECOMMENDED")
+  reason            String?
+  distanceKm        Float?
+  transitMinutes    Int?
+  approvedAt        TimestamptzString?
+  completedAt       TimestamptzString?
+  createdAt         TimestamptzString  @default(now())
+
+  medicine       Medicine @relation(fields: [medicineId], references: [id])
+  sourcePhc      PHC      @relation("SourcePHC", fields: [sourcePhcId], references: [id])
+  destinationPhc PHC      @relation("DestPHC", fields: [destinationPhcId], references: [id])
+}
+
+model TransferHistory {
+  id                 String            @id @default(uuid())
+  transferId         String?
+  sourcePhcId        String?
+  destinationPhcId   String?
+  sourcePhcName      String
+  destinationPhcName String
+  medicineId         String?
+  medicineName       String
+  quantity           Int
+  distanceKm         Float?
+  transitMinutes     Int?
+  status             String
+  carrier            String?
+  temperatureCelsius Float?
+  resilienceLift     String?
+  createdAt          TimestamptzString @default(now())
+
+  sourcePhc      PHC?      @relation("HistorySourcePHC", fields: [sourcePhcId], references: [id], onDelete: SetNull)
+  destinationPhc PHC?      @relation("HistoryDestPHC", fields: [destinationPhcId], references: [id], onDelete: SetNull)
+  medicine       Medicine? @relation(fields: [medicineId], references: [id], onDelete: SetNull)
+}
+
+model FederatedNode {
+  id                  String             @id
+  country             String
+  countryCode         String
+  flag                String
+  institution         String
+  enclaveName         String
+  datasetStatus       String
+  recordsCount        String
+  recordsTrained      Int                @default(0)
+  modelVersion        String
+  localAccuracy       Float
+  lossMetric          Float?
+  weightHash          String?
+  verificationStatus  String
+  latencyMs           Int
+  lastWeightUpload    String
+  lastSync            TimestamptzString?
+  contributedInsights String?
+  rawVaultStatus      String
+  updatedAt           TimestamptzString  @default(now())
+}
