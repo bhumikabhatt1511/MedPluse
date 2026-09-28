@@ -23,7 +23,7 @@ import {
   ACTIVE_RECOMMENDATION,
   INITIAL_TRANSFER_HISTORY,
 } from './data/mockData';
-import { PHC, Medicine, Alert, StaffMember, TransferRecommendation, TransferHistoryItem, RiskLevel } from './types';
+import { PHC, Medicine, Alert, StaffMember, TransferRecommendation, TransferHistoryItem, RiskLevel, DemoPersonaId } from './types';
 import * as api from './services/api';
 import {
   generateMedicineShortageAlerts,
@@ -62,6 +62,25 @@ export default function App() {
       // Storage unavailable / quota exceeded fallback
     }
   }, [language]);
+
+  // Demo Operational Persona State with localStorage persistence
+  const [activePersona, setActivePersona] = useState<DemoPersonaId>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('medpulse_demo_persona');
+      if (saved === 'phc-mo' || saved === 'dho' || saved === 'scm') {
+        return saved as DemoPersonaId;
+      }
+    }
+    return 'dho';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('medpulse_demo_persona', activePersona);
+    } catch (e) {
+      // Storage unavailable / quota exceeded fallback
+    }
+  }, [activePersona]);
 
   // Core mutable state for interactive operations
   const [phcs, setPhcs] = useState<PHC[]>(INITIAL_PHCS);
@@ -494,6 +513,8 @@ export default function App() {
         isMobileMenuOpen={mobileMenuOpen}
         language={language}
         onToggleLanguage={setLanguage}
+        activePersona={activePersona}
+        onSelectPersona={setActivePersona}
         onOpenAlertDetails={(alert) => {
           setSelectedPhcId(alert.phcId);
           setCurrentView('phc-details');
@@ -597,6 +618,7 @@ export default function App() {
               language={language}
               onApproveTransfer={handleApproveTransfer}
               onRejectTransfer={handleRejectTransfer}
+              activePersonaId={activePersona}
             />
           )}
 

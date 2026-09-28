@@ -25,10 +25,13 @@ import {
   RotateCcw,
   ArrowUpRight,
   ChevronDown,
+  Printer,
+  FileText,
 } from 'lucide-react';
-import { PHC, TransferRecommendation, TransferHistoryItem, Medicine } from '../../types';
+import { PHC, TransferRecommendation, TransferHistoryItem, Medicine, DemoPersonaId } from '../../types';
 import { INITIAL_TRANSFER_HISTORY, INITIAL_MEDICINES } from '../../data/mockData';
 import { RiskBadge } from '../common/RiskBadge';
+import { TransferGatePassModal, TransferGatePassData } from '../common/TransferGatePassModal';
 import {
   explainResourceTransferRecommendation,
   RecommendationExplanationResult,
@@ -55,6 +58,7 @@ interface ResourceOptimizerViewProps {
   transferHistory?: TransferHistoryItem[];
   onApproveTransfer: (updatedRec: TransferRecommendation) => void;
   onRejectTransfer?: (reason: string) => void;
+  activePersonaId?: DemoPersonaId;
 }
 
 export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
@@ -65,6 +69,7 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
   transferHistory: initialTransferHistory = INITIAL_TRANSFER_HISTORY,
   onApproveTransfer,
   onRejectTransfer,
+  activePersonaId = 'dho',
 }) => {
   const t = getTranslation(language);
 
@@ -171,6 +176,8 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
   const [isRejected, setIsRejected] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>(initialTransferHistory);
+  const [gatePassModalOpen, setGatePassModalOpen] = useState<boolean>(false);
+  const [activeGatePassData, setActiveGatePassData] = useState<TransferGatePassData | null>(null);
 
   // Sync transferHistory from parent
   useEffect(() => {
@@ -297,6 +304,39 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
     };
 
     setTransferHistory((prev) => [newRecord, ...prev]);
+
+    // Construct printable gate pass manifest data
+    const gatePass: TransferGatePassData = {
+      transferId: newRecord.id,
+      timestamp: newRecord.timestamp,
+      status: 'approved',
+      priority: 'HIGH PRIORITY — CRITICAL STOCKOUT PREVENTION',
+      donorPhcName: selectedDonor.phcName,
+      donorDistrict: selectedDonor.district || destinationPhc.district,
+      donorState: destinationPhc.state || 'Maharashtra',
+      donorSafeSurplus: selectedDonor.safeSurplus,
+      donorBufferDays: calculatedDonorDaysPost,
+      donorInHandStock: selectedDonor.inHandStock,
+      targetPhcName: destinationPhc.name,
+      targetDistrict: destinationPhc.district,
+      targetState: destinationPhc.state || 'Maharashtra',
+      targetPreStockDays: destDaysRemaining,
+      targetPostStockDays: calculatedTargetDaysPost,
+      medicineName: activeShortageMed.name,
+      medicineCategory: activeShortageMed.category,
+      quantity: transferQty,
+      unit: activeShortageMed.unit || 'Units',
+      batchNumber: `BATCH-2026-${activeShortageMed.id.toUpperCase()}`,
+      distanceKm: selectedDonor.distanceKm,
+      transitMinutes: selectedDonor.transitMinutes,
+      carrier: newRecord.carrier || 'Cold-Chain Van Alpha-2 (+4.1°C Active)',
+      corridor: `${selectedDonor.phcName.split('(')[0].trim()} → ${destinationPhc.name.split('(')[0].trim()} Express Corridor`,
+      temperatureCelsius: 4.1,
+      guardrailStatus: '10-Day Safe Surplus Rule Enforced • Zero Secondary Shortage Risk',
+      reasoningPillars: aiExplanation?.reasoningPillars,
+      explanation: aiExplanation?.explanation,
+    };
+    setActiveGatePassData(gatePass);
 
     // Construct updated recommendation payload
     const updatedRec: TransferRecommendation = {
@@ -875,7 +915,7 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
                 </button>
               </div>
             ) : isDispatched ? (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
@@ -884,7 +924,19 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
                       : 'Transfer Completed • Inventory & Alerts Updated Immediately'}
                   </span>
                 </div>
+
+                {/* Print Gate Pass Action */}
                 <button
+                  type="button"
+                  onClick={() => setGatePassModalOpen(true)}
+                  className="w-full py-2.5 px-3 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                >
+                  <Printer className="w-4 h-4 text-white" />
+                  <span>{language === 'hi' ? 'हस्तांतरण गेट पास प्रिंट करें (A4)' : 'Print Transfer Gate Pass (A4)'}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleResetWorkflow}
                   className="w-full py-1.5 text-[11px] text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1 cursor-pointer"
                 >
@@ -967,6 +1019,7 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
                 <th className="py-2.5 px-3 text-right">{language === 'hi' ? 'मात्रा' : 'Quantity'}</th>
                 <th className="py-2.5 px-3">{language === 'hi' ? 'स्थिति' : 'Status'}</th>
                 <th className="py-2.5 px-3">{language === 'hi' ? 'वाहन / परिणाम' : 'Carrier / Impact'}</th>
+                <th className="py-2.5 px-3 text-right">{language === 'hi' ? 'गेट पास' : 'Gate Pass'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
@@ -994,6 +1047,38 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-slate-500 text-[10px] font-sans">
                       {item.resilienceLift || item.carrier}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-sans">
+                      {isItemCompleted ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveGatePassData({
+                              transferId: item.id,
+                              timestamp: item.timestamp,
+                              status: 'completed',
+                              priority: 'VERIFIED REDISTRIBUTION MANIFEST',
+                              donorPhcName: item.sourcePhcName || item.donorPHC || 'PHC Donor Node',
+                              targetPhcName: item.targetPhcName || item.destinationPHC || 'PHC Recipient Node',
+                              medicineName: item.medicineName,
+                              quantity: item.quantity,
+                              unit: 'Units',
+                              distanceKm: item.distanceKm || 18.4,
+                              transitMinutes: item.transitMinutes || 28,
+                              carrier: item.carrier || 'Cold-Chain Van Alpha-2 (+4.1°C Active)',
+                              temperatureCelsius: item.temperatureCelsius || 4.1,
+                            });
+                            setGatePassModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-cyan-50 hover:text-cyan-700 text-slate-700 rounded-lg text-[10px] font-bold border border-slate-200 transition-colors cursor-pointer"
+                          title="Print Transfer Gate Pass"
+                        >
+                          <Printer className="w-3 h-3 text-slate-500" />
+                          <span>{language === 'hi' ? 'पास' : 'Print'}</span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 text-[10px]">—</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1124,6 +1209,15 @@ export const ResourceOptimizerView: React.FC<ResourceOptimizerViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Printable Transfer Gate Pass Modal */}
+      <TransferGatePassModal
+        isOpen={gatePassModalOpen}
+        onClose={() => setGatePassModalOpen(false)}
+        data={activeGatePassData}
+        language={language}
+        activePersonaId={activePersonaId}
+      />
     </div>
   );
 };

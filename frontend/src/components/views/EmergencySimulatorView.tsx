@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Zap,
   Flame,
@@ -16,6 +16,9 @@ import {
   RefreshCw,
   AlertCircle,
   ListOrdered,
+  Play,
+  Pause,
+  FastForward,
 } from 'lucide-react';
 import { PHC } from '../../types';
 import {
@@ -42,6 +45,106 @@ interface EmergencySimulatorViewProps {
   language?: LanguageCode;
 }
 
+export interface SimulationStage {
+  hour: number;
+  label: string;
+  labelHi: string;
+  patientSurge: number;
+  medicineSurge: number;
+  staffDepletion: number;
+  emergencySurge: number;
+  isMitigated: boolean;
+  description: string;
+  descriptionHi: string;
+}
+
+export const SIMULATION_STAGES: SimulationStage[] = [
+  {
+    hour: 0,
+    label: 'Baseline',
+    labelHi: 'बेसलाइन',
+    patientSurge: 10,
+    medicineSurge: 10,
+    staffDepletion: 0,
+    emergencySurge: 20,
+    isMitigated: false,
+    description: 'Hour 0: Nominal grid operation. Telemetry baseline established.',
+    descriptionHi: 'घंटा 0: मानक ग्रिड संचालन। टेलीमेट्री बेसलाइन स्थापित।',
+  },
+  {
+    hour: 2,
+    label: 'Inflow +25%',
+    labelHi: 'प्रवाह +25%',
+    patientSurge: 25,
+    medicineSurge: 25,
+    staffDepletion: 0,
+    emergencySurge: 20,
+    isMitigated: false,
+    description: 'Hour 2: Early ambulatory surge onset (+25%). Triage intake expanding.',
+    descriptionHi: 'घंटा 2: प्रारंभिक मरीज प्रवाह वृद्धि (+25%)। ट्राइएज कतारें बढ़ रही हैं।',
+  },
+  {
+    hour: 4,
+    label: 'Strain +50%',
+    labelHi: 'दबाव +50%',
+    patientSurge: 50,
+    medicineSurge: 25,
+    staffDepletion: 1,
+    emergencySurge: 30,
+    isMitigated: false,
+    description: 'Hour 4: Compounding strain. Clinician isolated; critical deficit alert generated.',
+    descriptionHi: 'घंटा 4: संचयी दबाव। 1 चिकित्सक अनुपस्थित; महत्वपूर्ण घाटे की चेतावनी।',
+  },
+  {
+    hour: 6,
+    label: 'Peak Crisis',
+    labelHi: 'चरम संकट',
+    patientSurge: 100,
+    medicineSurge: 40,
+    staffDepletion: 1,
+    emergencySurge: 50,
+    isMitigated: true,
+    description: 'Hour 6: Peak crisis conditions. Preemptive multi-PHC mitigation package deployed.',
+    descriptionHi: 'घंटा 6: चरम संकट स्थिति। AI पूर्वव्यापी शमन पैकेज सक्रिय किया गया।',
+  },
+  {
+    hour: 8,
+    label: 'Buffer Active',
+    labelHi: 'बफर सक्रिय',
+    patientSurge: 100,
+    medicineSurge: 40,
+    staffDepletion: 1,
+    emergencySurge: 30,
+    isMitigated: true,
+    description: 'Hour 8: Bed occupancy plateauing. Emergency PO and diversions taking effect.',
+    descriptionHi: 'घंटा 8: बिस्तर अधिभोग स्थिर। आपातकालीन आपूर्ति और डायवर्जन प्रभावी।',
+  },
+  {
+    hour: 10,
+    label: 'Rebalancing',
+    labelHi: 'पुनर्संतुलन',
+    patientSurge: 50,
+    medicineSurge: 25,
+    staffDepletion: 0,
+    emergencySurge: 20,
+    isMitigated: true,
+    description: 'Hour 10: Network resilience rebounding toward 84/100. Emergency stabilized.',
+    descriptionHi: 'घंटा 10: नेटवर्क लचीलापन 84/100 की ओर बढ़ रहा है। आपातकाल नियंत्रित।',
+  },
+  {
+    hour: 12,
+    label: 'Stabilized',
+    labelHi: 'स्थिरीकृत',
+    patientSurge: 10,
+    medicineSurge: 10,
+    staffDepletion: 0,
+    emergencySurge: 20,
+    isMitigated: true,
+    description: 'Hour 12: Simulation complete. Grid resilience restored across all 18 nodes.',
+    descriptionHi: 'घंटा 12: सिमुलेशन पूर्ण। सभी 18 नोड्स पर ग्रिड लचीलापन बहाल।',
+  },
+];
+
 export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
   phcs,
   onOpenOptimizer,
@@ -55,6 +158,11 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
 
   const [isMitigated, setIsMitigated] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Accelerated Autoplay Timeline State
+  const [currentHour, setCurrentHour] = useState<number>(4);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Gemini AI Emergency Analysis State
   const [aiAnalysis, setAiAnalysis] = useState<EmergencyAnalysisResult | null>(null);
@@ -145,6 +253,69 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
     runAiEmergencyAnalysis();
   }, [runAiEmergencyAnalysis]);
 
+  // Stage application helper
+  const applyStage = useCallback((hour: number) => {
+    const stage = SIMULATION_STAGES.find((s) => s.hour === hour) || SIMULATION_STAGES[0];
+    setCurrentHour(stage.hour);
+    setPatientSurge(stage.patientSurge);
+    setMedicineSurge(stage.medicineSurge);
+    setStaffDepletion(stage.staffDepletion);
+    setEmergencySurge(stage.emergencySurge);
+    setIsMitigated(stage.isMitigated);
+  }, []);
+
+  const stopAutoplay = useCallback(() => {
+    if (autoplayTimerRef.current) {
+      clearInterval(autoplayTimerRef.current);
+      autoplayTimerRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  const startAutoplay = useCallback((fromHour?: number) => {
+    stopAutoplay();
+    setIsPlaying(true);
+    let startH = fromHour !== undefined ? fromHour : currentHour;
+    if (startH >= 12) {
+      startH = 0;
+      applyStage(0);
+    }
+
+    const hours = [0, 2, 4, 6, 8, 10, 12];
+    let currentIndex = hours.indexOf(startH);
+    if (currentIndex === -1) currentIndex = 0;
+
+    autoplayTimerRef.current = setInterval(() => {
+      currentIndex += 1;
+      if (currentIndex >= hours.length) {
+        stopAutoplay();
+        return;
+      }
+      const nextHour = hours[currentIndex];
+      applyStage(nextHour);
+      if (nextHour >= 12) {
+        stopAutoplay();
+      }
+    }, 1500);
+  }, [currentHour, applyStage, stopAutoplay]);
+
+  const toggleAutoplay = () => {
+    if (isPlaying) {
+      stopAutoplay();
+    } else {
+      startAutoplay();
+    }
+  };
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoplayTimerRef.current) {
+        clearInterval(autoplayTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleAuthorizeMitigation = () => {
     setIsMitigated(true);
     setToastMessage(
@@ -156,12 +327,16 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
   };
 
   const handleResetSimulation = () => {
+    stopAutoplay();
+    applyStage(0);
     setPatientSurge(10);
     setMedicineSurge(10);
     setStaffDepletion(0);
     setEmergencySurge(20);
     setIsMitigated(false);
   };
+
+  const currentStageObj = SIMULATION_STAGES.find((s) => s.hour === currentHour) || SIMULATION_STAGES[0];
 
   return (
     <div id="emergency-simulator-view" className="space-y-6">
@@ -201,7 +376,47 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {/* Demo Auto-Play Control */}
+          <button
+            type="button"
+            onClick={toggleAutoplay}
+            className={`px-3 py-2 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-300 ${
+              isPlaying
+                ? 'bg-amber-600 hover:bg-amber-500 ring-2 ring-amber-300'
+                : 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500'
+            }`}
+            aria-label={
+              isPlaying
+                ? 'Pause accelerated demo simulation'
+                : currentHour === 12
+                ? 'Replay accelerated demo simulation'
+                : 'Start accelerated demo simulation'
+            }
+          >
+            {isPlaying ? (
+              <>
+                <Pause className="w-3.5 h-3.5" />
+                <span>{language === 'hi' ? 'रोकें' : 'Pause'}</span>
+              </>
+            ) : currentHour === 12 ? (
+              <>
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{language === 'hi' ? 'पुनः चलाएं' : 'Replay Auto-Play'}</span>
+              </>
+            ) : currentHour > 0 && currentHour < 12 ? (
+              <>
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>{language === 'hi' ? 'जारी रखें' : 'Resume Auto-Play'}</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>{language === 'hi' ? 'डेमो ऑटो-प्ले' : 'Demo Auto-Play'}</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={runAiEmergencyAnalysis}
             disabled={isAiLoading}
@@ -212,6 +427,7 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
               ? (language === 'hi' ? 'सिम्युलेटिंग...' : 'Simulating...')
               : (language === 'hi' ? 'आपातकाल का अनुकरण करें' : 'Simulate Emergency')}
           </button>
+
           <button
             onClick={handleResetSimulation}
             className="px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
@@ -219,6 +435,91 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
             <RotateCcw className="w-3.5 h-3.5" />
             {t.reset}
           </button>
+        </div>
+      </div>
+
+      {/* 12-Hour Crisis Simulation Timeline Stepper */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+              <FastForward className="w-4 h-4 text-cyan-600" />
+              {language === 'hi' ? '12-घंटे का संकट समयरेखा प्रगति' : '12-Hour Crisis Progression Timeline'}
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full font-bold">
+              {language === 'hi' ? 'त्वरित डेमो सिमुलेशन (~1.5s/चरण)' : 'Accelerated Demo (~1.5s/stage)'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-700">
+              {language === 'hi' ? 'वर्तमान चरण:' : 'Current Phase:'}
+            </span>
+            <span className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-900 text-cyan-300 rounded">
+              Hour {currentHour} / 12
+            </span>
+          </div>
+        </div>
+
+        {/* 7-Step Timeline Stepper */}
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2 pt-1">
+          {SIMULATION_STAGES.map((stage) => {
+            const isActive = stage.hour === currentHour;
+            const isPast = stage.hour < currentHour;
+            return (
+              <button
+                key={stage.hour}
+                type="button"
+                onClick={() => {
+                  stopAutoplay();
+                  applyStage(stage.hour);
+                }}
+                className={`p-2 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-between min-h-[64px] ${
+                  isActive
+                    ? 'bg-cyan-50 border-cyan-500 ring-2 ring-cyan-300 text-cyan-950 font-bold shadow-xs'
+                    : isPast
+                    ? 'bg-slate-50 border-slate-300 text-slate-700'
+                    : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-600'
+                }`}
+                title={`Click to jump to Hour ${stage.hour}`}
+              >
+                <span className="text-[10px] sm:text-xs font-mono font-bold">
+                  {language === 'hi' ? `घंटा ${stage.hour}` : `Hour ${stage.hour}`}
+                </span>
+                <span
+                  className={`w-2 h-2 rounded-full my-1 ${
+                    isActive
+                      ? 'bg-cyan-600 animate-ping'
+                      : isPast
+                      ? 'bg-emerald-500'
+                      : 'bg-slate-300'
+                  }`}
+                />
+                <span className="text-[9px] sm:text-[10px] truncate max-w-full leading-tight">
+                  {language === 'hi' ? stage.labelHi : stage.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Stage Status Description Banner */}
+        <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                isPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+              }`}
+            />
+            <span className="text-slate-700 font-medium">
+              {language === 'hi' ? currentStageObj.descriptionHi : currentStageObj.description}
+            </span>
+          </div>
+          <span className="text-[10px] font-mono text-slate-400 shrink-0 hidden sm:inline">
+            {isPlaying
+              ? (language === 'hi' ? 'ऑटो-प्ले सक्रिय' : 'Autoplay Running')
+              : (language === 'hi' ? 'मैन्युअल / रोका गया' : 'Manual / Paused')}
+          </span>
         </div>
       </div>
 
@@ -691,6 +992,19 @@ export const EmergencySimulatorView: React.FC<EmergencySimulatorViewProps> = ({
                 stroke="#ef4444"
                 strokeDasharray="3 3"
                 label={language === 'hi' ? 'गंभीर पतन रेखा (50)' : 'Critical Collapse Line (50)'}
+              />
+              <ReferenceLine
+                x={language === 'hi' ? `घंटा ${currentHour}` : `Hour ${currentHour}`}
+                stroke="#0891b2"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                label={{
+                  value: language === 'hi' ? `घंटा ${currentHour}` : `Hour ${currentHour}`,
+                  position: 'top',
+                  fill: '#0891b2',
+                  fontSize: 10,
+                  fontWeight: 'bold',
+                }}
               />
             </LineChart>
           </ResponsiveContainer>

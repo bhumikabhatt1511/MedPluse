@@ -20,9 +20,55 @@ import {
   ArrowRight,
   Globe2,
 } from 'lucide-react';
-import { Alert, PHC, Medicine } from '../../types';
+import { Alert, PHC, Medicine, DemoPersonaId, DemoPersona } from '../../types';
 import { NavView } from './Sidebar';
 import { LanguageCode, getTranslation } from '../../utils/i18n';
+
+export interface DemoPersonaOption extends DemoPersona {
+  icon: React.ReactNode;
+}
+
+export const DEMO_PERSONAS: DemoPersonaOption[] = [
+  {
+    id: 'dho',
+    title: 'District Health Officer',
+    titleHi: 'जिला स्वास्थ्य अधिकारी',
+    name: 'Dr. Elena Rostova',
+    nameHi: 'डॉ. एलेना रोस्तोवा',
+    roleBadge: 'District Health Officer',
+    roleBadgeHi: 'जिला स्वास्थ्य अधिकारी',
+    initials: 'DHO',
+    focus: 'Cross-PHC visibility, shortages, resource redistribution & emergency response',
+    focusHi: 'अंतर-पीएचसी निगरानी, कमी निवारण, सुरक्षित पुनर्वितरण और आपातकालीन प्रतिक्रिया',
+    icon: <ShieldCheck className="w-4 h-4 text-cyan-600 shrink-0" />,
+  },
+  {
+    id: 'phc-mo',
+    title: 'PHC Medical Officer',
+    titleHi: 'पीएचसी चिकित्सा अधिकारी',
+    name: 'Dr. Rajesh Sharma',
+    nameHi: 'डॉ. राजेश शर्मा',
+    roleBadge: 'PHC Medical Officer',
+    roleBadgeHi: 'पीएचसी चिकित्सा अधिकारी',
+    initials: 'MO',
+    focus: 'Local PHC status, triage, beds, staff rosters, patient telemetry & local supply',
+    focusHi: 'स्थानीय पीएचसी स्थिति, ट्राइएज, बिस्तर, स्टाफ रोस्टर, मरीज और आवश्यक दवाएं',
+    icon: <Hospital className="w-4 h-4 text-emerald-600 shrink-0" />,
+  },
+  {
+    id: 'scm',
+    title: 'Supply Chain Manager',
+    titleHi: 'आपूर्ति श्रृंखला प्रबंधक',
+    name: 'Vikram Malhotra',
+    nameHi: 'विक्रम मल्होत्रा',
+    roleBadge: 'Supply Chain Manager',
+    roleBadgeHi: 'आपूर्ति श्रृंखला प्रबंधक',
+    initials: 'SCM',
+    focus: 'Medicine inventory, stockout risk, 7-day demand forecasts & cold-chain logistics',
+    focusHi: 'दवा इन्वेंट्री, स्टॉकआउट जोखिम, 7-दिवसीय मांग पूर्वानुमान और कोल्ड-चेन लॉजिस्टिक्स',
+    icon: <Pill className="w-4 h-4 text-amber-600 shrink-0" />,
+  },
+];
 
 interface HeaderProps {
   currentView?: NavView;
@@ -46,6 +92,8 @@ interface HeaderProps {
   onSelectJurisdiction?: (jurisdiction: string) => void;
   language?: 'en' | 'hi';
   onToggleLanguage?: (lang: 'en' | 'hi') => void;
+  activePersona?: DemoPersonaId;
+  onSelectPersona?: (personaId: DemoPersonaId) => void;
 }
 
 interface JurisdictionOption {
@@ -197,11 +245,14 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectJurisdiction,
   language = 'en',
   onToggleLanguage,
+  activePersona = 'dho',
+  onSelectPersona,
 }) => {
   const t = getTranslation(language);
   const [timeUtc, setTimeUtc] = useState<string>('');
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [showJurisdictionDropdown, setShowJurisdictionDropdown] = useState<boolean>(false);
+  const [showPersonaDropdown, setShowPersonaDropdown] = useState<boolean>(false);
   const [currentJurisdiction, setCurrentJurisdiction] = useState<string>(selectedJurisdiction);
   const [searchVal, setSearchVal] = useState<string>('');
   const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
@@ -212,6 +263,9 @@ export const Header: React.FC<HeaderProps> = ({
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const jurisdictionRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const personaRef = useRef<HTMLDivElement>(null);
+
+  const currentPersona = DEMO_PERSONAS.find((p) => p.id === activePersona) || DEMO_PERSONAS[0];
 
   useEffect(() => {
     setCurrentJurisdiction(selectedJurisdiction);
@@ -245,11 +299,36 @@ export const Header: React.FC<HeaderProps> = ({
       ) {
         setIsSearchFocused(false);
       }
+      if (
+        personaRef.current &&
+        !personaRef.current.contains(event.target as Node)
+      ) {
+        setShowPersonaDropdown(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowPersonaDropdown(false);
+        setShowJurisdictionDropdown(false);
+        setShowNotifications(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
+
+  const handleSelectPersona = (personaId: DemoPersonaId) => {
+    if (onSelectPersona) {
+      onSelectPersona(personaId);
+    }
+    setShowPersonaDropdown(false);
+  };
 
   const bricsNations = [
     { code: 'IN', name: 'India', flag: '🇮🇳', subtitle: 'National Health Mission' },
@@ -831,15 +910,142 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* User Profile */}
-        <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-          <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-            ER
-          </div>
-          <div className="hidden 2xl:flex flex-col text-left">
-            <span className="text-xs font-bold text-slate-800 leading-tight">Dr. Elena Rostova</span>
-            <span className="text-[10px] text-slate-500 leading-tight">Health Ops Director</span>
-          </div>
+        {/* Demo Operational Persona Switcher */}
+        <div className="relative pl-1 border-l border-slate-200" ref={personaRef}>
+          <button
+            type="button"
+            onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
+            className={`flex items-center gap-1.5 sm:gap-2 px-2 py-1 sm:py-1.5 rounded-lg border transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-500/40 ${
+              showPersonaDropdown
+                ? 'bg-cyan-50/80 border-cyan-300 shadow-xs'
+                : 'bg-white hover:bg-slate-50 border-slate-200/90 hover:border-slate-300'
+            }`}
+            aria-expanded={showPersonaDropdown}
+            aria-haspopup="listbox"
+            aria-label={`Current operational demo persona: ${language === 'hi' ? currentPersona.titleHi : currentPersona.title}. Click to switch persona.`}
+            title={language === 'hi' ? `डेमो व्यक्तित्व: ${currentPersona.titleHi}` : `Demo Persona: ${currentPersona.title}`}
+          >
+            {/* Persona Avatar / Icon */}
+            <div
+              className={`w-7 h-7 rounded-md flex items-center justify-center font-bold text-xs shrink-0 shadow-xs transition-colors ${
+                currentPersona.id === 'phc-mo'
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300/80'
+                  : currentPersona.id === 'scm'
+                  ? 'bg-amber-100 text-amber-800 border border-amber-300/80'
+                  : 'bg-cyan-100 text-cyan-800 border border-cyan-300/80'
+              }`}
+            >
+              {currentPersona.icon}
+            </div>
+
+            {/* Persona Labels (Compact on small, Title on md/lg, Full on 2xl) */}
+            <div className="flex flex-col text-left">
+              <div className="flex items-center gap-1">
+                <span className="hidden sm:inline-block text-xs font-bold text-slate-800 leading-tight truncate max-w-[130px] md:max-w-[160px] 2xl:max-w-[190px]">
+                  {language === 'hi' ? currentPersona.titleHi : currentPersona.title}
+                </span>
+                <span className="sm:hidden text-xs font-bold text-slate-800 leading-tight">
+                  {currentPersona.initials}
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-wider px-1 py-0.2 bg-slate-100 text-slate-500 rounded border border-slate-200">
+                  Demo
+                </span>
+              </div>
+              <span className="hidden 2xl:inline-block text-[10px] text-slate-500 leading-tight truncate max-w-[190px]">
+                {language === 'hi' ? currentPersona.nameHi : currentPersona.name}
+              </span>
+            </div>
+
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
+                showPersonaDropdown ? 'rotate-180 text-cyan-600' : ''
+              }`}
+            />
+          </button>
+
+          {/* Persona Dropdown Popover */}
+          {showPersonaDropdown && (
+            <div
+              className="absolute right-0 mt-1.5 w-76 sm:w-84 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden py-1 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150"
+              role="listbox"
+              aria-label="Select Demo Operational Persona"
+            >
+              {/* Popover Header */}
+              <div className="px-3.5 py-2 bg-slate-50/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    {language === 'hi' ? 'डेमो ऑपरेशनल व्यक्तित्व' : 'Demo Operational Persona'}
+                  </span>
+                  <span className="text-[10px] font-medium text-cyan-700 bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-100">
+                    {DEMO_PERSONAS.length} {language === 'hi' ? 'भूमिकाएँ' : 'Roles'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                  {language === 'hi'
+                    ? 'विभिन्न स्वास्थ्य परिचालन दृष्टिकोणों को प्रदर्शित करने के लिए स्विच करें'
+                    : 'Switch perspective to preview operational context & priority metrics'}
+                </p>
+              </div>
+
+              {/* Persona Options List */}
+              <div className="py-1">
+                {DEMO_PERSONAS.map((persona) => {
+                  const isSelected = persona.id === activePersona;
+                  return (
+                    <button
+                      key={persona.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => handleSelectPersona(persona.id)}
+                      className={`w-full text-left px-3.5 py-2.5 flex items-start gap-3 transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-cyan-50/70 text-slate-900 border-l-2 border-cyan-600'
+                          : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      {/* Persona Icon Badge */}
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
+                          persona.id === 'phc-mo'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : persona.id === 'scm'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                        }`}
+                      >
+                        {persona.icon}
+                      </div>
+
+                      {/* Info & Focus */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className={`text-xs font-bold ${isSelected ? 'text-cyan-950' : 'text-slate-800'}`}>
+                            {language === 'hi' ? persona.titleHi : persona.title}
+                          </span>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                          )}
+                        </div>
+                        <div className="text-[11px] font-medium text-slate-500">
+                          {language === 'hi' ? persona.nameHi : persona.name}
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-snug mt-1 line-clamp-2">
+                          {language === 'hi' ? persona.focusHi : persona.focus}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Footer Notice */}
+              <div className="px-3 py-1.5 bg-slate-50/50 flex items-center justify-between text-[10px] text-slate-400">
+                <span>{language === 'hi' ? 'डेमो संदर्भ मोड' : 'Demo Context Layer'}</span>
+                <span className="font-mono text-[9px]">{language === 'hi' ? 'सक्रिय' : 'Active: ' + currentPersona.initials}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

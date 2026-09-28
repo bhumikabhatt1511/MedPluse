@@ -208,3 +208,19 @@ export interface DemandForecastPoint {
   lowerConfidenceBound: number;
   intervenedStockRemaining?: number;
 }
+
+export type DemoPersonaId = 'phc-mo' | 'dho' | 'scm';
+
+export interface DemoPersona {
+  id: DemoPersonaId;
+  title: string;
+  titleHi: string;
+  name: string;
+  nameHi: string;
+  roleBadge: string;
+  roleBadgeHi: string;
+  initials: string;
+  focus: string;
+  focusHi: string;
+}
+

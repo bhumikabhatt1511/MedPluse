@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { PHC, TransferRecommendation, Medicine } from '../types';
+import * as api from './api';
 
 export interface RecommendationExplanationParams {
   recommendation: TransferRecommendation;
@@ -55,8 +56,8 @@ export interface PHCDiagnosticParams {
   phc: PHC;
 }
 
-// Key resolution priority:
-// 1. In-browser local storage override (configured in Settings)
+// Development client-side key resolution priority:
+// 1. In-browser local storage override (configured in Settings for manual testing)
 // 2. Vite environment variable: import.meta.env.VITE_GEMINI_API_KEY
 export function getGeminiApiKey(): string {
   if (typeof window !== 'undefined') {
@@ -82,13 +83,17 @@ export function setGeminiApiKey(key: string): void {
   }
 }
 
-export function isGeminiConfigured(): boolean {
+export function isClientGeminiConfigured(): boolean {
   return getGeminiApiKey().length > 0;
 }
 
+export function isGeminiConfigured(): boolean {
+  // In production deployment, Gemini is served securely through the backend proxy.
+  return true;
+}
+
 /**
- * Universal Gemini caller with fallback to direct HTTP REST endpoint
- * Supports @google/genai SDK while ensuring complete browser compatibility.
+ * Universal client-side direct caller (used as development fallback when local key is set)
  */
 async function callGeminiDirect(prompt: string, systemInstruction?: string): Promise<string> {
   const apiKey = getGeminiApiKey();
@@ -177,7 +182,7 @@ export interface ResourceTransferExplanationParams {
 
 /**
  * 1. AI Resource Transfer Recommendation Explanation ("Why this donor?")
- * Grounded in hard mathematical supply chain & clinical telemetry data.
+ * Calls Backend Express Proxy (holding GEMINI_API_KEY) with automatic fallback.
  */
 export async function explainResourceTransferRecommendation(
   params: ResourceTransferExplanationParams
@@ -211,18 +216,19 @@ export async function explainResourceTransferRecommendation(
     `Zero Secondary Cascade: Donor facility remains operational and resilient without risking secondary stockout.`,
   ];
 
-  if (!isGeminiConfigured()) {
-    return {
-      explanation: fallbackExplanation,
-      reasoningPillars: fallbackPillars,
-      donorImpact: `Preserves ${donorPostTransferDays} days safe coverage (${donorPostTransferStock}u remaining).`,
-      recipientImpact: `Extends stock coverage from ${destinationDaysRemaining}d to ${destinationPostTransferDays}d (+${(destinationPostTransferDays - destinationDaysRemaining).toFixed(1)}d buffer).`,
-      isLiveAI: false,
-      modelUsed: 'Grounded Deterministic Engine (API connection fallback)',
-    };
+  // Primary Path: Call Secure Backend AI Proxy
+  try {
+    const backendResult = await api.explainTransferAI(params);
+    if (backendResult && backendResult.explanation) {
+      return backendResult;
+    }
+  } catch (backendErr) {
+    console.debug('Backend AI proxy note:', backendErr);
   }
 
-  const prompt = `You are the MedPulse BRICS Sovereign Healthcare AI Optimization Engine.
+  // Development Fallback: If client key is explicitly configured in Settings
+  if (isClientGeminiConfigured()) {
+    const prompt = `You are the MedPulse BRICS Sovereign Healthcare AI Optimization Engine.
 Explain WHY this specific donor PHC is recommended for an inter-PHC medicine transfer to resolve a critical shortage.
 
 MATHEMATICAL AND LOGISTICAL TELEMETRY:
@@ -259,37 +265,39 @@ Respond in this JSON format:
   "recipientImpact": "..."
 }`;
 
-  try {
-    const rawOutput = await callGeminiDirect(
-      prompt,
-      'You are a specialized healthcare supply chain and resilience optimization AI. Output only valid JSON.'
-    );
+    try {
+      const rawOutput = await callGeminiDirect(
+        prompt,
+        'You are a specialized healthcare supply chain and resilience optimization AI. Output only valid JSON.'
+      );
 
-    const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+      const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
 
-    return {
-      explanation: parsed.explanation || fallbackExplanation,
-      reasoningPillars: Array.isArray(parsed.reasoningPillars) && parsed.reasoningPillars.length > 0
-        ? parsed.reasoningPillars
-        : fallbackPillars,
-      donorImpact: parsed.donorImpact || `Preserves ${donorPostTransferDays} days safe coverage.`,
-      recipientImpact: parsed.recipientImpact || `Extends stock coverage to ${destinationPostTransferDays} days.`,
-      isLiveAI: true,
-      modelUsed: 'Google Gemini 2.5 Flash',
-    };
-  } catch (err: any) {
-    console.error('Gemini explanation error:', err);
-    return {
-      explanation: fallbackExplanation,
-      reasoningPillars: fallbackPillars,
-      donorImpact: `Preserves ${donorPostTransferDays} days safe coverage (${donorPostTransferStock}u remaining).`,
-      recipientImpact: `Extends stock coverage from ${destinationDaysRemaining}d to ${destinationPostTransferDays}d.`,
-      isLiveAI: false,
-      modelUsed: 'Grounded Deterministic Engine (API connection fallback)',
-      error: err.message || 'Error communicating with Gemini API',
-    };
+      return {
+        explanation: parsed.explanation || fallbackExplanation,
+        reasoningPillars: Array.isArray(parsed.reasoningPillars) && parsed.reasoningPillars.length > 0
+          ? parsed.reasoningPillars
+          : fallbackPillars,
+        donorImpact: parsed.donorImpact || `Preserves ${donorPostTransferDays} days safe coverage.`,
+        recipientImpact: parsed.recipientImpact || `Extends stock coverage to ${destinationPostTransferDays} days.`,
+        isLiveAI: true,
+        modelUsed: 'Google Gemini 2.5 Flash (Client Key)',
+      };
+    } catch (err: any) {
+      console.error('Client Gemini explanation error:', err);
+    }
   }
+
+  // Robust Grounded Deterministic Fallback
+  return {
+    explanation: fallbackExplanation,
+    reasoningPillars: fallbackPillars,
+    donorImpact: `Preserves ${donorPostTransferDays} days safe coverage (${donorPostTransferStock}u remaining).`,
+    recipientImpact: `Extends stock coverage from ${destinationDaysRemaining}d to ${destinationPostTransferDays}d (+${(destinationPostTransferDays - destinationDaysRemaining).toFixed(1)}d buffer).`,
+    isLiveAI: false,
+    modelUsed: 'Grounded Deterministic Engine',
+  };
 }
 
 /**
@@ -326,7 +334,7 @@ export async function explainRecommendation(
 
 /**
  * 2. Emergency Simulation AI
- * Evaluates changed operational state under crisis compounding stress.
+ * Evaluates operational state under crisis compounding stress via Backend AI Proxy.
  */
 export async function simulateEmergencyScenario(
   params: EmergencySimulationParams
@@ -358,14 +366,22 @@ export async function simulateEmergencyScenario(
     ],
     priorityOrder: resilienceScore < 50 ? 'Immediate' : 'Urgent',
     isLiveAI: false,
-    modelUsed: 'Grounded Deterministic Simulation (Configure Gemini API Key in Settings for live reasoning)',
+    modelUsed: 'Grounded Deterministic Simulation',
   };
 
-  if (!isGeminiConfigured()) {
-    return fallbackResult;
+  // Primary Path: Call Secure Backend AI Proxy
+  try {
+    const backendResult = await api.analyzeEmergencyAI(params);
+    if (backendResult && backendResult.riskExplanation) {
+      return backendResult;
+    }
+  } catch (backendErr) {
+    console.debug('Backend emergency AI proxy note:', backendErr);
   }
 
-  const prompt = `You are the MedPulse BRICS Sovereign Emergency Crisis Simulator AI.
+  // Development Fallback: If client key is explicitly configured in Settings
+  if (isClientGeminiConfigured()) {
+    const prompt = `You are the MedPulse BRICS Sovereign Emergency Crisis Simulator AI.
 Analyze the following multi-PHC simulated disaster/emergency scenario and generate an actionable operational incident briefing.
 
 SIMULATED OPERATIONAL STRESS METRICS:
@@ -381,7 +397,7 @@ SIMULATED OPERATIONAL STRESS METRICS:
 TASK:
 1. Provide a comprehensive 2-3 sentence Risk Explanation of the systemic failure vector.
 2. Identify the top 3 Key Problems / Bottlenecks.
-3. Provide a numbered list of 4 prioritized Recommended Mitigation Actions (e.g. inter-PHC supply transfers, clinician mobilization, sub-centre diversions, emergency PO release).
+3. Provide a numbered list of 4 prioritized Recommended Mitigation Actions.
 4. Specify the Priority Order ("Immediate", "Urgent", or "Preemptive").
 
 Respond in this JSON format:
@@ -401,40 +417,37 @@ Respond in this JSON format:
   "priorityOrder": "Immediate"
 }`;
 
-  try {
-    const rawOutput = await callGeminiDirect(
-      prompt,
-      'You are a senior emergency healthcare resilience coordinator. Output only valid JSON.'
-    );
+    try {
+      const rawOutput = await callGeminiDirect(
+        prompt,
+        'You are a senior emergency healthcare resilience coordinator. Output only valid JSON.'
+      );
 
-    const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+      const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
 
-    return {
-      riskExplanation: parsed.riskExplanation || fallbackResult.riskExplanation,
-      keyProblems: Array.isArray(parsed.keyProblems) && parsed.keyProblems.length > 0
-        ? parsed.keyProblems
-        : fallbackResult.keyProblems,
-      recommendedActions: Array.isArray(parsed.recommendedActions) && parsed.recommendedActions.length > 0
-        ? parsed.recommendedActions
-        : fallbackResult.recommendedActions,
-      priorityOrder: parsed.priorityOrder || fallbackResult.priorityOrder,
-      isLiveAI: true,
-      modelUsed: 'Google Gemini 2.5 Flash',
-    };
-  } catch (err: any) {
-    console.error('Gemini emergency simulation error:', err);
-    return {
-      ...fallbackResult,
-      isLiveAI: false,
-      modelUsed: 'Grounded Deterministic Simulation (API fallback)',
-      error: err.message || 'Error communicating with Gemini API',
-    };
+      return {
+        riskExplanation: parsed.riskExplanation || fallbackResult.riskExplanation,
+        keyProblems: Array.isArray(parsed.keyProblems) && parsed.keyProblems.length > 0
+          ? parsed.keyProblems
+          : fallbackResult.keyProblems,
+        recommendedActions: Array.isArray(parsed.recommendedActions) && parsed.recommendedActions.length > 0
+          ? parsed.recommendedActions
+          : fallbackResult.recommendedActions,
+        priorityOrder: parsed.priorityOrder || fallbackResult.priorityOrder,
+        isLiveAI: true,
+        modelUsed: 'Google Gemini 2.5 Flash (Client Key)',
+      };
+    } catch (err: any) {
+      console.error('Client Gemini emergency simulation error:', err);
+    }
   }
+
+  return fallbackResult;
 }
 
 /**
- * 3. Demand Forecast Natural Language Insight
+ * 3. Demand Forecast Natural Language Insight AI
  */
 export async function generateDemandForecastInsight(
   params: DemandForecastInsightParams
@@ -443,11 +456,19 @@ export async function generateDemandForecastInsight(
 
   const fallback = `${medicineName} is projected to become critical within ${stockoutDays} days under the ${scenario} scenario. Daily consumption (${burnRate} units/day) exceeds current stock reserve (${currentStock} units) relative to the central depot lead time of ${leadTimeDays} days, leaving an unbuffered vulnerability window of ${(leadTimeDays - stockoutDays).toFixed(1)} days.`;
 
-  if (!isGeminiConfigured()) {
-    return { insight: fallback, isLiveAI: false };
+  // Primary Path: Call Secure Backend AI Proxy
+  try {
+    const backendResult = await api.explainDemandAI(params);
+    if (backendResult && backendResult.insight) {
+      return backendResult;
+    }
+  } catch (backendErr) {
+    console.debug('Backend demand forecast AI proxy note:', backendErr);
   }
 
-  const prompt = `You are the MedPulse BRICS Predictive Demand Intelligence AI.
+  // Development Fallback: If client key is explicitly configured in Settings
+  if (isClientGeminiConfigured()) {
+    const prompt = `You are the MedPulse BRICS Predictive Demand Intelligence AI.
 Generate a concise, 2-sentence dashboard-friendly demand insight for the clinical inventory dashboard.
 
 DATA:
@@ -461,19 +482,22 @@ DATA:
 
 Explain clearly why the medicine faces stockout risk and what the operational implication is. Keep it concise, executive-level, and dashboard friendly.`;
 
-  try {
-    const rawOutput = await callGeminiDirect(
-      prompt,
-      'You are a concise healthcare analytics assistant. Output 2 clear sentences.'
-    );
-    return { insight: rawOutput.trim(), isLiveAI: true };
-  } catch (err: any) {
-    return { insight: fallback, isLiveAI: false, error: err.message };
+    try {
+      const rawOutput = await callGeminiDirect(
+        prompt,
+        'You are a concise healthcare analytics assistant. Output 2 clear sentences.'
+      );
+      return { insight: rawOutput.trim(), isLiveAI: true };
+    } catch (err: any) {
+      return { insight: fallback, isLiveAI: false, error: err.message };
+    }
   }
+
+  return { insight: fallback, isLiveAI: false };
 }
 
 /**
- * 4. PHC Operational & Clinical Diagnostic Summary
+ * 4. PHC Operational & Clinical Diagnostic Summary AI
  */
 export async function generatePHCDiagnostic(
   params: PHCDiagnosticParams
@@ -482,11 +506,19 @@ export async function generatePHCDiagnostic(
 
   const fallback = `${phc.name} is currently operating at ${phc.riskLevel.toUpperCase()} risk with a resilience score of ${phc.resilienceScore}/100. Key pressures include ${phc.occupiedBeds}/${phc.totalBeds} occupied beds (${Math.round((phc.occupiedBeds / phc.totalBeds) * 100)}%), ${phc.doctorsPresent}/${phc.doctorsTotal} active medical officers, and a ${phc.medicineRisk} medicine risk vector with ${phc.stockoutPredictionDays} days of essential antibiotic coverage.`;
 
-  if (!isGeminiConfigured()) {
-    return { diagnostic: fallback, isLiveAI: false };
+  // Primary Path: Call Secure Backend AI Proxy
+  try {
+    const backendResult = await api.summarizePHCAI({ phc });
+    if (backendResult && backendResult.diagnostic) {
+      return backendResult;
+    }
+  } catch (backendErr) {
+    console.debug('Backend PHC diagnostic AI proxy note:', backendErr);
   }
 
-  const prompt = `You are the MedPulse Clinical Telemetry AI Diagnostic Assistant.
+  // Development Fallback: If client key is explicitly configured in Settings
+  if (isClientGeminiConfigured()) {
+    const prompt = `You are the MedPulse Clinical Telemetry AI Diagnostic Assistant.
 Generate a concise 2-sentence clinical and operational health summary for the following Primary Health Centre.
 
 PHC TELEMETRY:
@@ -501,15 +533,18 @@ PHC TELEMETRY:
 
 Summarize the operational state, identifying the single most urgent bottleneck and the immediate mitigation priority.`;
 
-  try {
-    const rawOutput = await callGeminiDirect(
-      prompt,
-      'You are a clinical operations expert. Output 2 concise sentences.'
-    );
-    return { diagnostic: rawOutput.trim(), isLiveAI: true };
-  } catch (err: any) {
-    return { diagnostic: fallback, isLiveAI: false, error: err.message };
+    try {
+      const rawOutput = await callGeminiDirect(
+        prompt,
+        'You are a clinical operations expert. Output 2 concise sentences.'
+      );
+      return { diagnostic: rawOutput.trim(), isLiveAI: true };
+    } catch (err: any) {
+      return { diagnostic: fallback, isLiveAI: false, error: err.message };
+    }
   }
+
+  return { diagnostic: fallback, isLiveAI: false };
 }
 
 export interface MedicineShortageExplanationParams {
@@ -536,7 +571,6 @@ export interface MedicineShortageExplanationResult {
 
 /**
  * 5. Medicine Shortage Risk Explanation AI
- * Grounded natural-language reasoning explaining WHY a medicine is at risk.
  */
 export async function explainMedicineShortageRisk(
   params: MedicineShortageExplanationParams
@@ -565,14 +599,22 @@ export async function explainMedicineShortageRisk(
     clinicalImplication: `Without preemptive intervention, pediatric and ambulatory patients face treatment delays or stockout within ${daysRemaining} days.`,
     recommendedNextStep: `Authorize inter-PHC stock redistribution from the nearest donor facility with verified safe surplus.`,
     isLiveAI: false,
-    modelUsed: 'Grounded Deterministic Engine (API fallback)',
+    modelUsed: 'Grounded Deterministic Engine',
   };
 
-  if (!isGeminiConfigured()) {
-    return fallbackResult;
+  // Primary Path: Call Secure Backend AI Proxy
+  try {
+    const backendResult = await api.explainShortageAI(params);
+    if (backendResult && backendResult.explanation) {
+      return backendResult;
+    }
+  } catch (backendErr) {
+    console.debug('Backend shortage AI proxy note:', backendErr);
   }
 
-  const prompt = `You are the MedPulse BRICS Pharmaceutical Supply Chain AI Specialist.
+  // Development Fallback: If client key is explicitly configured in Settings
+  if (isClientGeminiConfigured()) {
+    const prompt = `You are the MedPulse BRICS Pharmaceutical Supply Chain AI Specialist.
 Explain WHY this specific medicine is at ${riskLevel.toUpperCase()} stockout risk and provide clinical and operational analysis.
 
 MEDICINE DATA:
@@ -599,30 +641,26 @@ Respond in this JSON format:
   "recommendedNextStep": "..."
 }`;
 
-  try {
-    const rawOutput = await callGeminiDirect(
-      prompt,
-      'You are a senior healthcare supply chain resilience expert. Output only valid JSON.'
-    );
-    const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    try {
+      const rawOutput = await callGeminiDirect(
+        prompt,
+        'You are a senior healthcare supply chain resilience expert. Output only valid JSON.'
+      );
+      const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
 
-    return {
-      explanation: parsed.explanation || fallbackResult.explanation,
-      rootCauses: Array.isArray(parsed.rootCauses) && parsed.rootCauses.length > 0 ? parsed.rootCauses : fallbackResult.rootCauses,
-      clinicalImplication: parsed.clinicalImplication || fallbackResult.clinicalImplication,
-      recommendedNextStep: parsed.recommendedNextStep || fallbackResult.recommendedNextStep,
-      isLiveAI: true,
-      modelUsed: 'Google Gemini 2.5 Flash',
-    };
-  } catch (err: any) {
-    console.error('Gemini shortage explanation error:', err);
-    return {
-      ...fallbackResult,
-      isLiveAI: false,
-      modelUsed: 'Grounded Deterministic Engine (API fallback)',
-      error: err.message || 'Error communicating with Gemini API',
-    };
+      return {
+        explanation: parsed.explanation || fallbackResult.explanation,
+        rootCauses: Array.isArray(parsed.rootCauses) && parsed.rootCauses.length > 0 ? parsed.rootCauses : fallbackResult.rootCauses,
+        clinicalImplication: parsed.clinicalImplication || fallbackResult.clinicalImplication,
+        recommendedNextStep: parsed.recommendedNextStep || fallbackResult.recommendedNextStep,
+        isLiveAI: true,
+        modelUsed: 'Google Gemini 2.5 Flash (Client Key)',
+      };
+    } catch (err: any) {
+      console.error('Client Gemini shortage explanation error:', err);
+    }
   }
-}
 
+  return fallbackResult;
+}

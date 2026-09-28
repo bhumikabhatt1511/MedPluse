@@ -4,18 +4,7 @@ import { sendSuccess, sendError } from '../utils/response.js';
 
 export async function explainTransfer(req: Request, res: Response) {
   try {
-    const { recommendation, sourcePhc, targetPhc, medicine, customQuantity } = req.body;
-    if (!recommendation) {
-      sendError(res, 'Transfer recommendation payload is required', 400);
-      return;
-    }
-    const result = await aiService.explainTransferRecommendation({
-      recommendation,
-      sourcePhc,
-      targetPhc,
-      medicine,
-      customQuantity: customQuantity !== undefined ? Number(customQuantity) : undefined,
-    });
+    const result = await aiService.explainTransferRecommendation(req.body);
     sendSuccess(res, result, 'Transfer reasoning generated');
   } catch (err: any) {
     sendError(res, err?.message || 'Failed to explain transfer recommendation', 500);
@@ -31,13 +20,43 @@ export async function analyzeEmergency(req: Request, res: Response) {
   }
 }
 
+export async function explainDemand(req: Request, res: Response) {
+  try {
+    const result = await aiService.explainDemandForecastAI(req.body);
+    sendSuccess(res, result, 'Demand forecast explanation generated');
+  } catch (err: any) {
+    sendError(res, err?.message || 'Failed to explain demand forecast', 500);
+  }
+}
+
+export async function summarizePHC(req: Request, res: Response) {
+  try {
+    const result = await aiService.summarizePHCAI(req.body);
+    sendSuccess(res, result, 'PHC diagnostic summary generated');
+  } catch (err: any) {
+    sendError(res, err?.message || 'Failed to summarize PHC diagnostic', 500);
+  }
+}
+
+export async function explainShortage(req: Request, res: Response) {
+  try {
+    const result = await aiService.explainShortageAI(req.body);
+    sendSuccess(res, result, 'Medicine shortage explanation generated');
+  } catch (err: any) {
+    sendError(res, err?.message || 'Failed to explain medicine shortage', 500);
+  }
+}
+
 export async function getAIStatus(req: Request, res: Response) {
   sendSuccess(
     res,
     {
       isConfigured: aiService.isGeminiAvailable(),
-      engine: aiService.isGeminiAvailable() ? 'Google Gemini GenAI (Live)' : 'MedPulse Deterministic Safety Engine (Fallback)',
+      engine: aiService.isGeminiAvailable()
+        ? 'Google Gemini 2.5 Flash (Live)'
+        : 'MedPulse Deterministic Safety Engine (Fallback)',
       provider: 'MedPulse Backend AI Gateway',
+      model: 'gemini-2.5-flash',
     },
     'AI gateway status'
   );

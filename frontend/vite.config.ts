@@ -1,7 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
@@ -12,11 +12,45 @@ export default defineConfig(() => {
       },
     },
     server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    build: {
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            const normalized = id.replace(/\\/g, '/');
+            if (normalized.includes('node_modules/maplibre-gl/')) {
+              return 'vendor-map';
+            }
+            if (normalized.includes('node_modules/recharts/')) {
+              return 'vendor-charts';
+            }
+            if (normalized.includes('node_modules/@google/genai/')) {
+              return 'vendor-ai';
+            }
+            if (normalized.includes('node_modules/lucide-react/')) {
+              return 'vendor-icons';
+            }
+            if (
+              normalized.includes('node_modules/react/') ||
+              normalized.includes('node_modules/react-dom/')
+            ) {
+              return 'vendor-react';
+            }
+          },
+        },
+      },
     },
   };
 });

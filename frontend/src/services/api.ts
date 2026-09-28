@@ -206,15 +206,9 @@ export async function simulateEmergencyScenario(params: {
 }
 
 // ----------------------------------------------------
-// Explainable AI Endpoints
+// Explainable AI Endpoints (Backend Proxy)
 // ----------------------------------------------------
-export async function explainTransferAI(payload: {
-  recommendation: TransferRecommendation;
-  sourcePhc?: PHC;
-  targetPhc?: PHC;
-  medicine?: Medicine;
-  customQuantity?: number;
-}) {
+export async function explainTransferAI(payload: any) {
   return request<{
     explanation: string;
     reasoningPillars: string[];
@@ -230,7 +224,54 @@ export async function explainTransferAI(payload: {
 }
 
 export async function analyzeEmergencyAI(payload: any) {
-  return request<any>('/ai/analyze-emergency', {
+  return request<{
+    riskExplanation: string;
+    keyProblems: string[];
+    recommendedActions: string[];
+    priorityOrder: 'Immediate' | 'Urgent' | 'Preemptive';
+    isLiveAI: boolean;
+    modelUsed: string;
+    error?: string;
+  }>('/ai/analyze-emergency', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function explainDemandAI(payload: any) {
+  return request<{
+    insight: string;
+    isLiveAI: boolean;
+    modelUsed: string;
+    error?: string;
+  }>('/ai/demand-explanation', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function summarizePHCAI(payload: any) {
+  return request<{
+    diagnostic: string;
+    isLiveAI: boolean;
+    modelUsed: string;
+    error?: string;
+  }>('/ai/phc-summary', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function explainShortageAI(payload: any) {
+  return request<{
+    explanation: string;
+    rootCauses: string[];
+    clinicalImplication: string;
+    recommendedNextStep: string;
+    isLiveAI: boolean;
+    modelUsed: string;
+    error?: string;
+  }>('/ai/shortage-explanation', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -241,6 +282,7 @@ export async function fetchAIStatus() {
     isConfigured: boolean;
     engine: string;
     provider: string;
+    model?: string;
   }>('/ai/status');
 }
 
